@@ -155,32 +155,46 @@ stage('Test Layer7 Connectivity') {
     }
 }
  
-        stage('Deploy to Layer7') {
-            steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'layer7-gateway-credentials',
-                        usernameVariable: 'GATEWAY_USERNAME',
-                        passwordVariable: 'GATEWAY_PASSWORD'
-                    )
-                ]) {
- 
-                    sh '''
-                        echo "Deploying bundle to Layer7 Gateway..."
- 
-                        ${GMU_HOME}/GatewayMigrationUtility.sh \
-                            migrateIn \
-                            --host ${GATEWAY_HOST} \
-                            --port ${GATEWAY_PORT} \
-                            --username "${GATEWAY_USERNAME}" \
-                            --password "${GATEWAY_PASSWORD}" \
-                            --bundle "${BUNDLE_FILE}"
- 
-                        echo "Deployment completed."
-                    '''
-                }
-            }
+stage('Deploy Bundle to Layer7') {
+    steps {
+        withCredentials([
+            usernamePassword(
+                credentialsId: 'layer7-gateway-credentials',
+                usernameVariable: 'GATEWAY_USERNAME',
+                passwordVariable: 'GATEWAY_PASSWORD'
+            )
+        ]) {
+            bat '''
+                echo ========================================
+                echo Deploying bundle to Layer7 Gateway
+                echo ========================================
+
+                set "PATH=%JAVA_HOME%\\bin;%PATH%"
+
+                "%GMU_HOME%\\GatewayMigrationUtility.bat" migrateIn ^
+                    -h "%GATEWAY_HOST%" ^
+                    -p "%GATEWAY_PORT%" ^
+                    -u "%GATEWAY_USERNAME%" ^
+                    --plaintextPassword "%GATEWAY_PASSWORD%" ^
+                    --trustCertificate ^
+                    --trustHostname ^
+                    -b "%BUNDLE_FILE%" ^
+                    -r "%WORKSPACE%\\gmu-migrate-results.xml"
+
+                if errorlevel 1 (
+                    echo ERROR: Layer7 bundle deployment failed.
+                    exit /b 1
+                )
+
+                echo ========================================
+                echo Layer7 bundle deployment successful.
+                echo Results file:
+                echo %WORKSPACE%\\gmu-migrate-results.xml
+                echo ========================================
+            '''
         }
+    }
+}
  
         stage('Deployment Verification') {
             steps {
