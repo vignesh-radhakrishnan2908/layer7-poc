@@ -159,7 +159,7 @@ stage('Test Layer7 Connectivity') {
             steps {
                 withCredentials([
                     usernamePassword(
-                        credentialsId: 'test',
+                        credentialsId: 'layer7-gateway-credentials',
                         usernameVariable: 'GATEWAY_USERNAME',
                         passwordVariable: 'GATEWAY_PASSWORD'
                     )
