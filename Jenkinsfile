@@ -141,6 +141,7 @@ stage('Test Layer7 Connectivity') {
                     --trustCertificate ^
                     --trustHostname ^
                     --bundle "%BUNDLE_FILE%" ^
+                    -r "%WORKSPACE%\\gmu-migrate-test-results.xml" ^
                     --test
 
                 if errorlevel 1 (
