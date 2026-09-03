@@ -11,7 +11,7 @@ pipeline {
  
     environment {
         BUNDLE_FILE = 'bundles/Configuration-Cache-Demo.bundle'
-        GMU_HOME = '/opt/gmu'
+        GMU_HOME = 'C:\Users\v.ae.radhakrishnan\Downloads\Layer7_API_Gateway_Development_Tools_11.1.00\Layer7_API_Gateway_Development_Tools_11.1.00\GatewayMigrationUtility-1.10.00-1903'
     }
  
     stages {
@@ -52,16 +52,27 @@ pipeline {
  
         stage('Validate GMU') {
             steps {
-                sh '''
-                    echo "Checking GMU installation..."
- 
-                    if [ ! -f "${GMU_HOME}/GatewayMigrationUtility.sh" ]; then
-                        echo "GMU not found at ${GMU_HOME}"
-                        exit 1
-                    fi
- 
-                    echo "GMU installation found."
-                '''
+                bat '''
+            echo ========================================
+            echo Verifying Layer7 GMU
+            echo ========================================
+
+            if not exist "%GMU_HOME%\\GatewayMigrationUtility.bat" (
+                echo ERROR: GatewayMigrationUtility.bat not found
+                echo Expected location: %GMU_HOME%
+                exit /b 1
+            )
+
+            echo GMU launcher found.
+            "%GMU_HOME%\\GatewayMigrationUtility.bat" --help
+
+            if errorlevel 1 (
+                echo ERROR: GMU execution failed.
+                exit /b 1
+            )
+
+            echo GMU verification successful.
+        '''
             }
         }
  
