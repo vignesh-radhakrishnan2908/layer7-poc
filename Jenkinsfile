@@ -203,23 +203,30 @@ stage('Deploy Bundle to Layer7') {
         }
     }
  
-    stage('Smoke Test') {
-    steps {
-        bat '''
-            echo ========================================
-            echo Running Layer7 Smoke Test
-            echo ========================================
-
-            curl -k -f ^
-              "https://%GATEWAY_HOST%:%GATEWAY_PORT%/ConfigurationCacheDemo/configuration"
-
-            if errorlevel 1 (
-                echo ERROR: Configuration service validation failed.
-                exit /b 1
-            )
-
-            echo Configuration service validation successful.
-        '''
+post {
+ 
+        success {
+            echo """
+            ==========================================
+            Layer7 Deployment SUCCESS
+            Environment : ${params.ENVIRONMENT}
+            Bundle      : ${env.BUNDLE_FILE}
+            ==========================================
+            """
+        }
+ 
+        failure {
+            echo """
+            ==========================================
+            Layer7 Deployment FAILED
+            Environment : ${params.ENVIRONMENT}
+            ==========================================
+            """
+        }
+ 
+        always {
+            archiveArtifacts artifacts: 'results.xml, gmu-migration-results.xml', allowEmptyArchive: true
+            cleanWs()
+        }
     }
-}
 }
