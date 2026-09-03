@@ -11,7 +11,7 @@ pipeline {
  
     environment {
         BUNDLE_FILE = 'bundles/Configuration-Cache-Demo.bundle'
-        GMU_HOME = 'C:\Users\v.ae.radhakrishnan\Downloads\Layer7_API_Gateway_Development_Tools_11.1.00\Layer7_API_Gateway_Development_Tools_11.1.00\GatewayMigrationUtility-1.10.00-1903'
+        GMU_HOME = 'C:\\layer7\\GMU'
     }
  
     stages {
