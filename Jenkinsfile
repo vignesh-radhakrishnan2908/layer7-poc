@@ -84,7 +84,7 @@ stage('Test Layer7 Connectivity') {
     steps {
         withCredentials([
             usernamePassword(
-                credentialsId: '4f0db111-e132-4bb4-8c0f-cbc8d5baac46',
+                credentialsId: 'layer7-gateway-credentials',
                 usernameVariable: 'GATEWAY_USERNAME',
                 passwordVariable: 'GATEWAY_PASSWORD'
             )
@@ -121,7 +121,7 @@ stage('Test Layer7 Connectivity') {
     steps {
         withCredentials([
             usernamePassword(
-                credentialsId: '4f0db111-e132-4bb4-8c0f-cbc8d5baac46',
+                credentialsId: 'layer7-gateway-credentials',
                 usernameVariable: 'GATEWAY_USERNAME',
                 passwordVariable: 'GATEWAY_PASSWORD'
             )
@@ -158,7 +158,7 @@ stage('Test Layer7 Connectivity') {
             steps {
                 withCredentials([
                     usernamePassword(
-                        credentialsId: 'layer7-gateway-credentials',
+                        credentialsId: 'test',
                         usernameVariable: 'GATEWAY_USERNAME',
                         passwordVariable: 'GATEWAY_PASSWORD'
                     )
