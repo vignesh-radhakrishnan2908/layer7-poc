@@ -12,7 +12,7 @@ pipeline {
     environment {
         BUNDLE_FILE = 'bundles/Configuration-Cache-Demo.bundle'
         GMU_HOME = 'C:\\layer7\\GMU'
-        JAVA_HOME = 'C:\\Program Files\\Java\\jdk-21.0.12'
+        JAVA_HOME = 'C:\\Users\\9854564\\Softwares\\jdk-21.0.12.1'
     }
  
     stages {
