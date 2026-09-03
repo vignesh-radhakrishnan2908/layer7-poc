@@ -80,6 +80,41 @@ pipeline {
         '''
             }
         }
+        stage('Test Layer7 Connectivity') {
+    steps {
+        withCredentials([
+            usernamePassword(
+                credentialsId: '4f0db111-e132-4bb4-8c0f-cbc8d5baac46',
+                usernameVariable: 'GATEWAY_USERNAME',
+                passwordVariable: 'GATEWAY_PASSWORD'
+            )
+        ]) {
+            bat '''
+                echo ========================================
+                echo Testing Layer7 Gateway Connectivity
+                echo ========================================
+
+                set "PATH=%JAVA_HOME%\\bin;%PATH%"
+
+                "%GMU_HOME%\\GatewayMigrationUtility.bat" list ^
+                    --host "%GATEWAY_HOST%" ^
+                    --port "%GATEWAY_PORT%" ^
+                    -u "%GATEWAY_USERNAME%" ^
+                    -x "%GATEWAY_PASSWORD%" ^
+                    --trustCertificate ^
+                    --trustHostname ^
+                    -t policy
+
+                if errorlevel 1 (
+                    echo ERROR: Unable to connect to Layer7 Gateway
+                    exit /b 1
+                )
+
+                echo Layer7 Gateway connectivity successful.
+            '''
+        }
+    }
+}
  
         stage('Deploy to Layer7') {
             steps {
