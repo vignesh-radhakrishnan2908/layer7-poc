@@ -12,6 +12,7 @@ pipeline {
     environment {
         BUNDLE_FILE = 'bundles/Configuration-Cache-Demo.bundle'
         GMU_HOME = 'C:\\layer7\\GMU'
+        JAVA_HOME = 'C:\\Program Files\\Java\\jdk-21.0.12'
     }
  
     stages {
@@ -54,20 +55,34 @@ pipeline {
             steps {
                 bat '''
             echo ========================================
+            echo Verifying Java
+            echo ========================================
+
+            echo JAVA_HOME=%JAVA_HOME%
+            "%JAVA_HOME%\\bin\\java.exe" -version
+
+            if errorlevel 1 (
+                echo ERROR: Java execution failed
+                exit /b 1
+            )
+
+            echo ========================================
             echo Verifying Layer7 GMU
             echo ========================================
 
             if not exist "%GMU_HOME%\\GatewayMigrationUtility.bat" (
                 echo ERROR: GatewayMigrationUtility.bat not found
-                echo Expected location: %GMU_HOME%
                 exit /b 1
             )
 
             echo GMU launcher found.
+
+            set "PATH=%JAVA_HOME%\\bin;%PATH%"
+
             "%GMU_HOME%\\GatewayMigrationUtility.bat" --help
 
             if errorlevel 1 (
-                echo ERROR: GMU execution failed.
+                echo ERROR: GMU execution failed
                 exit /b 1
             )
 
