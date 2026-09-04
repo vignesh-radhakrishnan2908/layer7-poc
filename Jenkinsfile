@@ -7,16 +7,15 @@ pipeline {
             choices: ['dev', 'test', 'prod'],
             description: 'Select target Layer7 environment'
         )
-        choice(
-        name: 'DEPLOY_MODE',
-        choices: ['SELECTED', 'ALL'],
-        description: 'Deploy selected bundles or all bundles'
-        )
-
         string(
-            name: 'BUNDLE_NAMES',
+            name: 'RELEASE',
+            defaultValue: 'R1',
+            description: 'Release to run: R1, R2, R3, R4, or ALL. Case-insensitive.'
+        )
+        string(
+            name: 'APP_FILTER',
             defaultValue: '',
-            description: 'For SELECTED mode, enter comma-separated bundle names. Example: CustomerAPI.bundle,PaymentAPI.bundle'
+            description: 'Optional: comma/space-separated app names to limit within the release (e.g. "Configuration-Cache-Demo.bundle,sampleTest.bundle"). Blank = all apps in the release.'
         )
     }
  
@@ -34,222 +33,172 @@ pipeline {
             }
         }
  
-        stage('Load Environment Configuration') {
+        stage('Load Environment & Manifest Config') {
             steps {
                 script {
+                    // Load basic Environment configurations
                     def envConfig = readYaml file: "config/${params.ENVIRONMENT}.yaml"
- 
                     env.GATEWAY_HOST = envConfig.gateway.host
                     env.GATEWAY_PORT = envConfig.gateway.port.toString()
                     env.GATEWAY_PROTOCOL = envConfig.gateway.protocol
- 
                     echo "Target Environment : ${params.ENVIRONMENT}"
                     echo "Gateway Host       : ${env.GATEWAY_HOST}"
                     echo "Gateway Port       : ${env.GATEWAY_PORT}"
-                }
-            }
-        }
  
-    stage('Validate Bundle Selection') {
-    steps {
-        script {
-            if (params.DEPLOY_MODE == 'SELECTED') {
-
-                if (!params.BUNDLE_NAMES?.trim()) {
-                    error "BUNDLE_NAMES is required when DEPLOY_MODE=SELECTED"
-                }
-
-                def bundles = params.BUNDLE_NAMES
-                    .split(',')
-                    .collect { it.trim() }
-                    .findAll { it }
-
-                if (bundles.isEmpty()) {
-                    error "No valid bundle names provided."
-                }
-
-                bundles.each { bundleName ->
-                    def bundlePath = "${env.BUNDLE_DIR}\\${bundleName}"
-
-                    if (!fileExists(bundlePath)) {
-                        error "Bundle file not found: ${bundlePath}"
+                    // ── Determine releases ────────────────────────────────────────
+                    def releaseInput = params.RELEASE?.trim()?.toUpperCase() ?: 'R1'
+                    def releasesToRun = releaseInput == 'ALL'
+                        ? ['R1', 'R2', 'R3', 'R4'].findAll { fileExists("releases/${it}/manifest.yaml") }
+                        : [releaseInput]
+ 
+                    // ── Optional app-level filter ──────────────────────────────
+                    def appFilter = params.APP_FILTER?.trim()
+                        ? params.APP_FILTER.split('[,\\s]+').collect { it.trim() }.findAll { it }
+                        : []
+ 
+                    // ── Map tracking database generation ────────────────────────
+                    // Tracks releases to their bundles list: ['R1': ['Configuration-Cache-Demo.bundle']]
+                    logReleaseApiMap = [:] 
+                    releasesToRun.each { release ->
+                        def manifestPath = "releases/${release}/manifest.yaml"
+                        if (!fileExists(manifestPath)) {
+                            error "Release ${release}: manifest not found at ${manifestPath}"
+                        }
+                        def manifest = readYaml file: manifestPath
+                        // Parse the services array from your manifest layout
+                        def apps = (manifest.services ?: []).collect { it.toString() }
+ 
+                        // If user defined an APP_FILTER, restrict the execution pool
+                        if (appFilter) {
+                            def filterLower = appFilter.collect { it.toLowerCase() }
+                            apps = apps.findAll { filterLower.contains(it.toLowerCase()) }
+                            echo "Release ${release}: filtered to [${apps.join(', ')}]"
+                        }
+                        if (apps.isEmpty()) {
+                            error "No valid bundles found to process for Release ${release} with current APP_FILTER."
+                        }
+ 
+                        logReleaseApiMap[release] = apps
+                        echo "Final apps to process for Release ${release}: [${apps.join(', ')}]"
                     }
-
-                    echo "Validated bundle: ${bundlePath}"
                 }
-
-                env.SELECTED_BUNDLES = bundles.join(',')
-
-            } else {
-                echo "All .bundle files in bundles folder will be deployed."
             }
         }
-    }
-}
- 
-        stage('Validate GMU') {
+        stage('Validate Bundles') {
             steps {
-                bat '''
-            echo ========================================
-            echo Verifying Java
-            echo ========================================
-
-            echo JAVA_HOME=%JAVA_HOME%
-            "%JAVA_HOME%\\bin\\java.exe" -version
-
-            if errorlevel 1 (
-                echo ERROR: Java execution failed
-                exit /b 1
-            )
-
-            echo ========================================
-            echo Verifying Layer7 GMU
-            echo ========================================
-
-            if not exist "%GMU_HOME%\\GatewayMigrationUtility.bat" (
-                echo ERROR: GatewayMigrationUtility.bat not found
-                exit /b 1
-            )
-
-            echo GMU launcher found successfully.
-            echo GMU verification completed successfully.
-        '''
-            }
-        }
-stage('Test Layer7 Connectivity') {
-    steps {
-        withCredentials([
-            usernamePassword(
-                credentialsId: 'layer7-gateway-credentials',
-                usernameVariable: 'GATEWAY_USERNAME',
-                passwordVariable: 'GATEWAY_PASSWORD'
-            )
-        ]) {
-            bat '''
-                echo ========================================
-                echo Testing Layer7 Gateway Connectivity
-                echo ========================================
-
-                set "PATH=%JAVA_HOME%\\bin;%PATH%"
-
-                "%GMU_HOME%\\GatewayMigrationUtility.bat" list ^
-                    -h "%GATEWAY_HOST%" ^
-                    -p "%GATEWAY_PORT%" ^
-                    -u "%GATEWAY_USERNAME%" ^
-                    --plaintextPassword "%GATEWAY_PASSWORD%" ^
-                    --trustCertificate ^
-                    --trustHostname ^
-                    -t POLICY
-
-                if errorlevel 1 (
-                    echo ERROR: Unable to connect to Layer7 Gateway
-                    exit /b 1
-                )
-
-                echo ========================================
-                echo Layer7 Gateway connectivity successful.
-                echo ========================================
-            '''
-        }
-    }
-}
- 
- 
-stage('Deploy Bundles to Layer7') {
-    steps {
-        withCredentials([
-            usernamePassword(
-                credentialsId: 'layer7-gateway-credentials',
-                usernameVariable: 'GATEWAY_USERNAME',
-                passwordVariable: 'GATEWAY_PASSWORD'
-            )
-        ]) {
-            script {
-
-                if (params.DEPLOY_MODE == 'SELECTED') {
-
-                    def bundles = env.SELECTED_BUNDLES.split(',')
-
-                    bundles.each { bundleName ->
-
-                        def bundlePath = "${env.BUNDLE_DIR}\\${bundleName}"
-
-                        echo "Deploying ${bundleName}"
-
-                        bat """
-                            set "PATH=%JAVA_HOME%\\bin;%PATH%"
-
-                            "%GMU_HOME%\\GatewayMigrationUtility.bat" migrateIn ^
-                                -h "%GATEWAY_HOST%" ^
-                                -p "%GATEWAY_PORT%" ^
-                                -u "%GATEWAY_USERNAME%" ^
-                                --plaintextPassword "%GATEWAY_PASSWORD%" ^
-                                --trustCertificate ^
-                                --trustHostname ^
-                                -b "${bundlePath}" ^
-                                -r "%WORKSPACE%\\gmu-results-${bundleName.replace('.bundle','')}.xml"
-
-                            if errorlevel 1 (
-                                echo ERROR: Deployment failed for ${bundleName}
-                                exit /b 1
-                            )
-                        """
+                script {
+                    logReleaseApiMap.each { release, apps ->
+                        apps.each { app ->
+                            // ADJUSTED: Looking for bundles in the root bundles/ directory
+                            String currentBundlePath = "bundles/${app}"
+                            if (!fileExists(currentBundlePath)) {
+                                error "Bundle file not found in workspace: ${currentBundlePath}"
+                            }
+                            echo "Validated physical bundle existence: ${currentBundlePath}"
+                        }
                     }
-
-                } else {
-
-                    bat '''
-                        echo Deploying all bundles...
-
-                        set "PATH=%JAVA_HOME%\\bin;%PATH%"
-
-                        for %%F in ("${env.BUNDLE_DIR}\\*.bundle") do (
-
-                            echo ========================================
-                            echo Deploying %%~nxF
-                            echo ========================================
-
-                            "%GMU_HOME%\\GatewayMigrationUtility.bat" migrateIn ^
-                                -h "%GATEWAY_HOST%" ^
-                                -p "%GATEWAY_PORT%" ^
-                                -u "%GATEWAY_USERNAME%" ^
-                                --plaintextPassword "%GATEWAY_PASSWORD%" ^
-                                --trustCertificate ^
-                                --trustHostname ^
-                                -b "%%F" ^
-                                -r "%WORKSPACE%\\gmu-results-%%~nF.xml"
-
-                            if errorlevel 1 (
-                                echo ERROR: Deployment failed for %%~nxF
-                                exit /b 1
-                            )
-                        )
-                    '''
                 }
             }
         }
-    }
-}
  
+        stage('Test Layer7 Connectivity') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'layer7-gateway-credentials',
+                        usernameVariable: 'GATEWAY_USERNAME',
+                        passwordVariable: 'GATEWAY_PASSWORD'
+                    )
+                ]) {
+                    script {
+                        logReleaseApiMap.each { release, apps ->
+                            apps.each { app ->
+                                // ADJUSTED: Pointing to bundles/ folder
+                                String currentBundlePath = "bundles/${app}"
+                                echo "========================================"
+                                echo "Testing connectivity using bundle: ${currentBundlePath}"
+                                echo "========================================"
+                                bat """
+                                    set "PATH=%JAVA_HOME%\\bin;%PATH%"
+                                    "%GMU_HOME%\\GatewayMigrationUtility.bat" migrateIn ^
+                                        -h "%GATEWAY_HOST%" ^
+                                        -p "%GATEWAY_PORT%" ^
+                                        -u "%GATEWAY_USERNAME%" ^
+                                        --plaintextPassword "%GATEWAY_PASSWORD%" ^
+                                        --bundle "${currentBundlePath}" ^
+                                        --results "results-${app}.xml" ^
+                                        --trustCertificate ^
+                                        --trustHostname ^
+                                        --test
+                                """
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        stage('Deploy to Layer7') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'layer7-gateway-credentials',
+                        usernameVariable: 'GATEWAY_USERNAME',
+                        passwordVariable: 'GATEWAY_PASSWORD'
+                    )
+                ]) {
+                    script {
+                        logReleaseApiMap.each { release, apps ->
+                            apps.each { app ->
+                                // ADJUSTED: Pointing to bundles/ folder
+                                String currentBundlePath = "bundles/${app}"
+                                echo "Deploying bundle: ${currentBundlePath} to Layer7 Gateway..."
+                                int exitCode = bat(
+                                    returnStatus: true,
+                                    script: """
+                                        @echo off
+                                        call "%GMU_HOME%\\GatewayMigrationUtility.bat" ^
+                                            migrateIn ^
+                                            --host %GATEWAY_HOST% ^
+                                            --port %GATEWAY_PORT% ^
+                                            --username "%GATEWAY_USERNAME%" ^
+                                            --plaintextPassword "%GATEWAY_PASSWORD%" ^
+                                            --bundle "${currentBundlePath}" ^
+                                            --results "gmu-results-${app}.xml" ^
+                                            --trustCertificate ^
+                                            --trustHostname
+                                    """
+                                )
+                                if (exitCode != 0) {
+                                    error "Deployment failed for bundle ${app} with error code ${exitCode}."
+                                }
+                                echo "Successfully deployed: ${app}"
+                            }
+                        }
+                    }
+                }
+            }
+        }
         stage('Deployment Verification') {
             steps {
-                echo "GMU deployment completed successfully."
+                echo "All specified GMU deployments completed successfully."
             }
         }
     }
- 
-post {
- 
+    post {
         success {
-            echo """
-            ==========================================
-            Layer7 Deployment SUCCESS
-            Environment : ${params.ENVIRONMENT}
-            Bundle      : ${env.BUNDLE_FILE}
-            ==========================================
-            """
+            script {
+                echo """
+                ==========================================
+                Layer7 Deployment SUCCESS
+                Environment : ${params.ENVIRONMENT}
+                Processed Deployments:
+                """
+                logReleaseApiMap.each { release, apps ->
+                    echo "Release ${release}: ${apps.join(', ')}"
+                }
+                echo "=========================================="
+            }
         }
- 
         failure {
             echo """
             ==========================================
@@ -258,10 +207,9 @@ post {
             ==========================================
             """
         }
- 
         always {
-            archiveArtifacts artifacts: 'results.xml, gmu-migration-results.xml', allowEmptyArchive: true
-            cleanWs()
-        }
+        archiveArtifacts artifacts: 'results-*.xml, gmu-results-*.xml', allowEmptyArchive: true
+        cleanWs()
+    }
     }
 }
